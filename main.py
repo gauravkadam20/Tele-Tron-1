@@ -2,7 +2,7 @@ from askdata import ask_database
 
 if __name__ == "__main__":
     print("=" * 60)
-    print(" Logistics AI Data Assistant")
+    print(" 🤖 Tele-Tron-1: Autonomous Logistics AI Assistant")
     print("=" * 60 + "\n")
 
     # 1. Realistic business insight query

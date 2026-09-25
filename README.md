@@ -1,6 +1,6 @@
-# 🚚 Logistics AI Data Assistant
+# 🤖 Tele-Tron-1
 
-An enterprise-grade **Natural Language to SQL (NL-to-SQL)** intelligence engine designed for supply chain and logistics analytics. Powered by **Google Gemini** models, **SQLite** with engine-level read-only security, and an interactive **Streamlit** dashboard.
+**Tele-Tron-1** is an autonomous **Natural Language to SQL (NL-to-SQL)** intelligence engine designed for supply chain and logistics analytics. Powered by **Google Gemini** models, **SQLite** with engine-level read-only security, and an interactive **Streamlit** dashboard.
 
 ---
 

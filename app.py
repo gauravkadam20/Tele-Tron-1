@@ -5,8 +5,8 @@ from askdata import ask_database, get_schema, get_readonly_connection, QueryResu
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="Logistics AI Data Assistant",
-    page_icon="🚚",
+    page_title="Tele-Tron-1 | Logistics AI Assistant",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -75,7 +75,7 @@ with st.sidebar:
         "https://cdn-icons-png.flaticon.com/512/2830/2830312.png",
         width=70,
     )
-    st.title("Settings & Schema")
+    st.title("Tele-Tron-1 Core")
 
     # Engine Status
     st.markdown("### 🔒 Security Status")
@@ -121,9 +121,9 @@ with st.sidebar:
 
 
 # 4. Header & Top KPIs
-st.markdown('<div class="main-header">🚚 Logistics AI Data Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">🤖 Tele-Tron-1</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-header">Natural language query engine powered by Google Gemini, SQLite read-only safety, and automated insight generation.</div>',
+    '<div class="sub-header">Autonomous Logistics Intelligence Engine powered by Google Gemini & SQLite.</div>',
     unsafe_allow_html=True,
 )
 
