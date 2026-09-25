@@ -99,6 +99,10 @@ python Database/setup_db.py
 Launch the web UI:
 
 ```bash
+# Recommended (works regardless of Windows PATH settings):
+python -m streamlit run app.py
+
+# Or directly if Streamlit is in your PATH:
 streamlit run app.py
 ```
 
