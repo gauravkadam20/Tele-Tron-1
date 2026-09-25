@@ -70,7 +70,7 @@ Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/gauravkadam20/Side-Projects.git
-cd Side-Projects
+cd Tele-Tron-1
 pip install -r requirements.txt
 ```
 
@@ -130,7 +130,7 @@ python test_askdata.py
 ## 📂 Project Structure
 
 ```
-Side-Projects/
+Tele-Tron-1/
 ├── .env                   # Local secrets (never committed)
 ├── .gitignore             # Git ignore configuration
 ├── requirements.txt       # Production dependencies
