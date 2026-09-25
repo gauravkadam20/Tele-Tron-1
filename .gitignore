@@ -1,0 +1,28 @@
+# Environment variables and secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+Database/*.db
+
+# Large raw datasets
+Data/Raw/*.csv
+
+# Testing & IDE
+.pytest_cache/
+.coverage
+.vscode/
+.idea/
