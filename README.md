@@ -7,11 +7,14 @@
 ## ✨ Features
 
 - **Natural Language to SQL**: Translates complex logistics questions into precise SQLite queries.
+- **Semantic Business Catalog**: Grounded domain dictionary mapping all 26 supply chain metrics, units, and executive categories for high accuracy.
+- **Transparent Assumptions Callouts**: Explains business interpretations and threshold choices made by the model.
 - **Automated Business Insights**: Synthesizes tabular results into executive summaries with key metrics, comparisons, and actionable insights.
 - **Engine-Level Read-Only Security**: Uses SQLite URI `mode=ro` to guarantee that destructive queries (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, etc.) cannot execute at the C-engine level.
 - **AST / Token Safety Filter**: Pre-execution validation blocking stacked queries, administration commands, and multi-statement injection while avoiding false positives on substring matches.
+- **Memory Safety Limits**: Automatically injects safety `LIMIT` caps to prevent unbounded queries from overwhelming memory or UI rendering.
 - **Self-Correction Retry Loop**: Automatically passes SQLite syntax or schema errors back to Gemini for guided query correction.
-- **Interactive Streamlit Web Dashboard**: Explore schema, query metrics, view generated SQL, inspect data tables, download CSV exports, and generate charts dynamically.
+- **Interactive Streamlit Web Dashboard**: Explore schema, view semantic definitions, inspect generated SQL, download CSV exports, and generate charts dynamically.
 - **Cached Schema Inspection**: In-memory caching of table metadata and column types via `PRAGMA table_info`.
 
 ---
@@ -138,6 +141,7 @@ Tele-Tron-1/
 ├── app.py                 # Streamlit web dashboard
 ├── askdata.py             # Core NL-to-SQL engine, safety checks & synthesizer
 ├── config.py              # Environment configuration & Gemini client factory
+├── data_dictionary.py     # Semantic business catalog & domain metadata
 ├── main.py                # Command-line entrypoint demonstration
 ├── test_askdata.py        # Unit & integration test suite
 ├── Database/

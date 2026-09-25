@@ -5,12 +5,14 @@ from pathlib import Path
 
 from askdata import (
     is_safe_query,
-    clean_sql,
+    clean_sql_and_assumptions,
+    enforce_safety_limit,
     get_schema,
     get_readonly_connection,
     ask_database,
     QueryResult,
 )
+from data_dictionary import get_data_dictionary_prompt, LOGISTICS_DATA_DICTIONARY
 from config import DB_PATH
 
 
@@ -61,18 +63,50 @@ class TestAskDataSafety(unittest.TestCase):
                 cursor.execute("UPDATE logistics_data SET shipping_costs = 9999 WHERE 1=1")
 
 
-class TestSqlCleaning(unittest.TestCase):
-    def test_clean_sql_with_markdown(self):
-        raw = "```sql\nSELECT * FROM logistics_data;\n```"
-        self.assertEqual(clean_sql(raw), "SELECT * FROM logistics_data;")
+class TestSafetyLimitsAndDataDictionary(unittest.TestCase):
+    def test_enforce_safety_limit_appends_default(self):
+        sql = "SELECT * FROM logistics_data WHERE delay_probability > 0.5"
+        capped_sql, is_capped = enforce_safety_limit(sql, default_limit=100)
+        self.assertTrue(is_capped)
+        self.assertTrue(capped_sql.endswith("LIMIT 100;"))
 
-    def test_clean_sql_with_surrounding_text(self):
-        raw = "Here is the query you requested:\n```sql\nSELECT COUNT(*) FROM logistics_data\n```\nHope that helps!"
-        self.assertEqual(clean_sql(raw), "SELECT COUNT(*) FROM logistics_data")
+    def test_enforce_safety_limit_preserves_smaller_limit(self):
+        sql = "SELECT * FROM logistics_data LIMIT 10;"
+        capped_sql, is_capped = enforce_safety_limit(sql, default_limit=100)
+        self.assertFalse(is_capped)
+        self.assertIn("LIMIT 10", capped_sql)
 
-    def test_clean_sql_plain(self):
-        raw = "SELECT timestamp, shipping_costs FROM logistics_data"
-        self.assertEqual(clean_sql(raw), "SELECT timestamp, shipping_costs FROM logistics_data")
+    def test_enforce_safety_limit_caps_excessive_limit(self):
+        sql = "SELECT * FROM logistics_data LIMIT 5000;"
+        capped_sql, is_capped = enforce_safety_limit(sql, default_limit=100, max_limit=500)
+        self.assertTrue(is_capped)
+        self.assertIn("LIMIT 500", capped_sql)
+
+    def test_data_dictionary_completeness(self):
+        self.assertIn("delay_probability", LOGISTICS_DATA_DICTIONARY)
+        self.assertIn("shipping_costs", LOGISTICS_DATA_DICTIONARY)
+        self.assertIn("risk_classification", LOGISTICS_DATA_DICTIONARY)
+        prompt_text = get_data_dictionary_prompt()
+        self.assertIn("Low Risk", prompt_text)
+        self.assertIn("High Risk", prompt_text)
+
+
+class TestSqlAndAssumptionsExtraction(unittest.TestCase):
+    def test_extract_sql_and_assumptions(self):
+        raw = """ASSUMPTIONS: Assumed high delay means delay_probability >= 0.70.
+SQL:
+```sql
+SELECT * FROM logistics_data WHERE delay_probability >= 0.70;
+```"""
+        sql, assumptions = clean_sql_and_assumptions(raw)
+        self.assertEqual(sql, "SELECT * FROM logistics_data WHERE delay_probability >= 0.70;")
+        self.assertIn("delay_probability >= 0.70", assumptions)
+
+    def test_extract_plain_sql(self):
+        raw = "```sql\nSELECT COUNT(*) FROM logistics_data;\n```"
+        sql, assumptions = clean_sql_and_assumptions(raw)
+        self.assertEqual(sql, "SELECT COUNT(*) FROM logistics_data;")
+        self.assertTrue(len(assumptions) > 0)
 
 
 class TestSchemaInspection(unittest.TestCase):
@@ -89,13 +123,14 @@ class TestEndToEndAskDatabase(unittest.TestCase):
             ask_database("Delete all records from the table")
         self.assertIn("Blocked unsafe query", str(ctx.exception))
 
-    def test_valid_question_with_summary(self):
-        result = ask_database("What is the average shipping cost in the dataset?")
+    def test_valid_question_with_summary_and_assumptions(self):
+        result = ask_database("What are the top 3 routes by average shipping cost?")
         self.assertIsInstance(result, QueryResult)
         self.assertIsNotNone(result.data)
         self.assertGreater(len(result.data), 0)
         self.assertTrue(result.sql.lower().startswith("select"))
         self.assertTrue(len(result.summary) > 0)
+        self.assertTrue(len(result.assumptions) > 0)
 
 
 if __name__ == "__main__":

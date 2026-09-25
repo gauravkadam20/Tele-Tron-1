@@ -96,14 +96,22 @@ with st.sidebar:
         help="Select which Gemini model will generate SQL and executive summaries.",
     )
 
-    # Database Schema Viewer
-    st.markdown("### 🗄️ Database Schema")
+    # Database Schema & Semantic Dictionary Viewer
+    st.markdown("### 🗄️ Database & Domain Catalog")
     with st.expander("View Table Schema & Columns", expanded=False):
         try:
             schema_text = get_schema()
             st.code(schema_text, language="markdown")
         except Exception as e:
             st.warning(f"Could not load schema: {e}")
+
+    with st.expander("View Semantic Data Dictionary & Units", expanded=False):
+        try:
+            from data_dictionary import get_data_dictionary_prompt
+            catalog_text = get_data_dictionary_prompt()
+            st.markdown(catalog_text)
+        except Exception as e:
+            st.warning(f"Could not load dictionary: {e}")
 
     # Sample Questions
     st.markdown("### 💡 Sample Questions")
@@ -163,7 +171,10 @@ if run_button and query_text.strip():
                 model=selected_model,
             )
 
-            # Executive Summary Card
+            # Business Assumptions & Executive Summary
+            if result.assumptions:
+                st.info(f"💡 **Business Interpretation & Assumptions:** {result.assumptions}")
+
             st.markdown("### 📊 Executive Summary")
             st.markdown(
                 f'<div class="summary-card">{result.summary}</div>',
@@ -175,7 +186,8 @@ if run_button and query_text.strip():
                 st.code(result.sql, language="sql")
 
             # Data Table & Metrics
-            st.markdown(f"### 📋 Query Results ({len(result.data)} rows)")
+            capped_badge = " *(🛡️ Memory Safety Cap Enforced)*" if result.is_safety_capped else ""
+            st.markdown(f"### 📋 Query Results ({len(result.data)} rows){capped_badge}")
 
             if len(result.data) > 0:
                 st.dataframe(result.data, use_container_width=True)
