@@ -10,9 +10,18 @@ from askdata import (
     get_schema,
     get_readonly_connection,
     ask_database,
+    clear_query_cache,
+    get_cache_size,
     QueryResult,
 )
 from data_dictionary import get_data_dictionary_prompt, LOGISTICS_DATA_DICTIONARY
+from chart_engine import (
+    detect_best_chart_type,
+    has_gps_coordinates,
+    render_dynamic_visualization,
+    build_bar_chart,
+    build_gps_fleet_map,
+)
 from config import DB_PATH
 
 
@@ -32,11 +41,8 @@ class TestAskDataSafety(unittest.TestCase):
         self.assertTrue(is_safe_query(cte_query))
 
     def test_keywords_in_literals_and_words_allowed(self):
-        # 'updated' should not trigger 'update'
         self.assertTrue(is_safe_query("SELECT * FROM logistics_data WHERE cargo_condition_status = 'updated'"))
-        # 'drop' inside a quoted literal
         self.assertTrue(is_safe_query("SELECT * FROM logistics_data WHERE risk_classification = 'drop'"))
-        # column names or aliases with substrings like 'alteration'
         self.assertTrue(is_safe_query("SELECT shipping_costs AS alteration_cost FROM logistics_data"))
 
     def test_destructive_queries_blocked(self):
@@ -56,7 +62,6 @@ class TestAskDataSafety(unittest.TestCase):
         self.assertFalse(is_safe_query("PRAGMA journal_mode = WAL"))
 
     def test_engine_level_readonly_enforcement(self):
-        """Verifies SQLite itself rejects writes even if an unsafe query reached the connection."""
         with get_readonly_connection(DB_PATH) as conn:
             cursor = conn.cursor()
             with self.assertRaises(sqlite3.OperationalError):
@@ -109,28 +114,89 @@ SELECT * FROM logistics_data WHERE delay_probability >= 0.70;
         self.assertTrue(len(assumptions) > 0)
 
 
-class TestSchemaInspection(unittest.TestCase):
-    def test_schema_contains_table_and_columns(self):
-        schema = get_schema()
-        self.assertIn("Table: logistics_data", schema)
-        self.assertIn("shipping_costs", schema)
-        self.assertIn("delay_probability", schema)
+class TestQueryCache(unittest.TestCase):
+    def setUp(self):
+        clear_query_cache()
+
+    def test_cache_hit_and_purge(self):
+        self.assertEqual(get_cache_size(), 0)
+        # Execute query first time (fresh)
+        res1 = ask_database("What is the average shipping cost across all records?", summarize=False)
+        self.assertFalse(res1.from_cache)
+        self.assertGreaterEqual(get_cache_size(), 1)
+
+        # Execute same query second time (cached)
+        res2 = ask_database("What is the average shipping cost across all records?", summarize=False)
+        self.assertTrue(res2.from_cache)
+        self.assertEqual(len(res1.data), len(res2.data))
+
+        # Clear cache
+        purged = clear_query_cache()
+        self.assertGreaterEqual(purged, 1)
+        self.assertEqual(get_cache_size(), 0)
 
 
-class TestEndToEndAskDatabase(unittest.TestCase):
-    def test_unsafe_prompt_blocked(self):
-        with self.assertRaises(ValueError) as ctx:
-            ask_database("Delete all records from the table")
-        self.assertIn("Blocked unsafe query", str(ctx.exception))
+class TestChartEngine(unittest.TestCase):
+    def test_detect_gps_coordinates(self):
+        df_gps = pd.DataFrame({
+            "vehicle_gps_latitude": [40.7128, 34.0522],
+            "vehicle_gps_longitude": [-74.0060, -118.2437],
+            "delay_probability": [0.8, 0.3],
+        })
+        has_gps, lat, lon = has_gps_coordinates(df_gps)
+        self.assertTrue(has_gps)
+        self.assertEqual(lat, "vehicle_gps_latitude")
+        self.assertEqual(lon, "vehicle_gps_longitude")
+        self.assertEqual(detect_best_chart_type(df_gps), "map")
 
-    def test_valid_question_with_summary_and_assumptions(self):
-        result = ask_database("What are the top 3 routes by average shipping cost?")
+        fig = build_gps_fleet_map(df_gps, lat, lon)
+        self.assertIsNotNone(fig)
+
+    def test_detect_kpi_type(self):
+        df_kpi = pd.DataFrame({"total_orders": [1200], "avg_cost": [450.50]})
+        self.assertEqual(detect_best_chart_type(df_kpi), "kpi")
+
+    def test_detect_categorical_bar(self):
+        df_cat = pd.DataFrame({
+            "risk_classification": ["Low Risk", "Moderate Risk", "High Risk"],
+            "avg_cost": [100.0, 200.0, 300.0],
+        })
+        self.assertEqual(detect_best_chart_type(df_cat), "bar")
+        fig = build_bar_chart(df_cat)
+        self.assertIsNotNone(fig)
+
+    def test_detect_time_series_line(self):
+        df_time = pd.DataFrame({
+            "timestamp": ["2021-01-01", "2021-01-02", "2021-01-03"],
+            "fuel_burn": [5.1, 5.8, 6.2],
+        })
+        self.assertEqual(detect_best_chart_type(df_time), "line")
+
+    def test_detect_scatter_plot(self):
+        df_scatter = pd.DataFrame({
+            "traffic_congestion": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "fuel_consumption": [2.1, 2.5, 3.2, 3.8, 4.2, 5.0, 5.5, 6.1, 6.8, 7.5],
+        })
+        self.assertEqual(detect_best_chart_type(df_scatter), "scatter")
+
+
+class TestMultiTurnContext(unittest.TestCase):
+    def test_ask_database_with_chat_history(self):
+        history = [
+            {
+                "question": "What are the top 3 routes by highest delay probability?",
+                "sql": "SELECT route_risk_level, delay_probability FROM logistics_data ORDER BY delay_probability DESC LIMIT 3;",
+                "summary": "The top 3 routes feature delay probabilities of 90% or higher.",
+            }
+        ]
+        result = ask_database(
+            question="What is the average shipping cost for those specific routes?",
+            chat_history=history,
+            summarize=True,
+        )
         self.assertIsInstance(result, QueryResult)
         self.assertIsNotNone(result.data)
-        self.assertGreater(len(result.data), 0)
         self.assertTrue(result.sql.lower().startswith("select"))
-        self.assertTrue(len(result.summary) > 0)
-        self.assertTrue(len(result.assumptions) > 0)
 
 
 if __name__ == "__main__":

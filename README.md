@@ -9,6 +9,9 @@
 ## ✨ Features
 
 - **Natural Language to SQL**: Translates complex logistics questions into precise SQLite queries.
+- **Multi-Turn Conversational Memory**: Maintains conversational context across follow-up queries, allowing users to drill down into prior results seamlessly.
+- **Dynamic Plotly Visualization & GPS Fleet Mapping**: Automatically renders interactive GPS vehicle maps on OpenStreetMap, time series trends, categorical bar charts, correlation scatter plots, and KPI metric cards.
+- **Zero-Latency In-Memory Query Caching**: Instant retrieval of recurring queries at $0 LLM token cost with live cache purging controls.
 - **Semantic Business Catalog**: Grounded domain dictionary mapping all 26 supply chain metrics, units, and executive categories for high accuracy.
 - **Transparent Assumptions Callouts**: Explains business interpretations and threshold choices made by the model.
 - **Automated Business Insights**: Synthesizes tabular results into executive summaries with key metrics, comparisons, and actionable insights.
@@ -16,7 +19,7 @@
 - **AST / Token Safety Filter**: Pre-execution validation blocking stacked queries, administration commands, and multi-statement injection while avoiding false positives on substring matches.
 - **Memory Safety Limits**: Automatically injects safety `LIMIT` caps to prevent unbounded queries from overwhelming memory or UI rendering.
 - **Self-Correction Retry Loop**: Automatically passes SQLite syntax or schema errors back to Gemini for guided query correction.
-- **Interactive Streamlit Web Dashboard**: Explore schema, view semantic definitions, inspect generated SQL, download CSV exports, and generate charts dynamically.
+- **Interactive Streamlit Web Dashboard**: Chat interface, schema explorer, semantic catalog viewer, interactive Plotly charts, GPS maps, and one-click CSV export.
 - **Cached Schema Inspection**: In-memory caching of table metadata and column types via `PRAGMA table_info`.
 
 ---
@@ -124,6 +127,7 @@ Tele-Tron-1/
 ├── ARCHITECTURE.md        # Illustrated deep-dive guide
 ├── app.py                 # Streamlit web dashboard
 ├── askdata.py             # Core NL-to-SQL engine, safety checks & synthesizer
+├── chart_engine.py        # Dynamic visualization & GPS fleet mapping engine
 ├── config.py              # Environment configuration & Gemini client factory
 ├── data_dictionary.py     # Semantic business catalog & domain metadata
 ├── main.py                # Command-line entrypoint demonstration

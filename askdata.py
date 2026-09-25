@@ -5,7 +5,7 @@ import sqlite3
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Dict, Any, Generator, Tuple
+from typing import Optional, Dict, Any, Generator, Tuple, List
 import pandas as pd
 from config import DB_PATH, DEFAULT_MODEL, get_client, client
 from data_dictionary import get_data_dictionary_prompt
@@ -18,10 +18,12 @@ warnings.filterwarnings(
 )
 
 _SCHEMA_CACHE: Optional[str] = None
+_QUERY_CACHE: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS: int = 3600
 
 
 class QueryResult:
-    """Encapsulates the result of a natural language database query with business assumptions."""
+    """Encapsulates the result of a natural language database query with business assumptions and cache status."""
 
     def __init__(
         self,
@@ -31,6 +33,7 @@ class QueryResult:
         summary: str = "",
         assumptions: str = "",
         is_safety_capped: bool = False,
+        from_cache: bool = False,
         error: Optional[str] = None,
     ):
         self.question = question
@@ -40,10 +43,13 @@ class QueryResult:
         self.summary = summary
         self.assumptions = assumptions
         self.is_safety_capped = is_safety_capped
+        self.from_cache = from_cache
         self.error = error
 
     def __str__(self) -> str:
         parts = []
+        if self.from_cache:
+            parts.append("[CACHED] Retrieved from Instant Cache ($0 cost)\n")
         if self.assumptions:
             parts.append(f"--- Assumptions & Interpretation ---\n{self.assumptions}\n")
         if self.summary:
@@ -59,7 +65,7 @@ class QueryResult:
         return "\n".join(parts)
 
     def __repr__(self) -> str:
-        return f"<QueryResult rows={len(self.data) if self.data is not None else 0} sql='{self.sql}'>"
+        return f"<QueryResult rows={len(self.data) if self.data is not None else 0} cached={self.from_cache} sql='{self.sql}'>"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -68,9 +74,36 @@ class QueryResult:
             "assumptions": self.assumptions,
             "summary": self.summary,
             "is_safety_capped": self.is_safety_capped,
+            "from_cache": self.from_cache,
             "rows_count": len(self.data) if self.data is not None else 0,
             "data": self.data.to_dict(orient="records") if self.data is not None else [],
         }
+
+
+def clear_query_cache() -> int:
+    """Clears all cached query results and returns the number of items purged."""
+    global _QUERY_CACHE
+    count = len(_QUERY_CACHE)
+    _QUERY_CACHE.clear()
+    return count
+
+
+def get_cache_size() -> int:
+    """Returns the current number of cached query entries."""
+    return len(_QUERY_CACHE)
+
+
+def _make_cache_key(
+    question: str,
+    model: str,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """Computes a normalized cache key for query caching."""
+    q_norm = question.strip().lower()
+    hist_sig = ""
+    if chat_history:
+        hist_sig = "|".join(h.get("question", "").strip().lower() for h in chat_history[-2:])
+    return f"{q_norm}::{model}::{hist_sig}"
 
 
 @contextmanager
@@ -245,9 +278,10 @@ def generate_sql(
     question: str,
     schema: str,
     error_context: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None,
     model: str = DEFAULT_MODEL,
 ) -> Tuple[str, str]:
-    """Generates a SQLite query and business assumptions from natural language with domain semantics."""
+    """Generates a SQLite query and business assumptions with domain semantics and conversational context."""
     correction_prompt = ""
     if error_context:
         correction_prompt = f"""
@@ -256,6 +290,24 @@ IMPORTANT: A previous query attempt failed with this error:
 Fix the issue and generate a corrected SQLite query.
 """
 
+    history_prompt = ""
+    if chat_history:
+        history_lines = ["\nPrevious Conversation Context:"]
+        for turn in chat_history[-3:]:
+            q = turn.get("question", "")
+            s = turn.get("sql", "")
+            ans = turn.get("summary", "")
+            if q:
+                history_lines.append(f'- User: "{q}"')
+            if s:
+                history_lines.append(f'  SQL: {s}')
+            if ans:
+                history_lines.append(f'  Summary: {ans}')
+        history_lines.append(
+            "\nNote: If the current user question is a follow-up, build upon or refine the context and previous SQL above."
+        )
+        history_prompt = "\n".join(history_lines) + "\n"
+
     data_dictionary = get_data_dictionary_prompt()
 
     prompt = f"""You are Tele-Tron-1, an expert SQLite data analyst for supply chain and logistics.
@@ -263,6 +315,7 @@ Given this database schema and semantic business catalog:
 
 {data_dictionary}
 
+{history_prompt}
 {correction_prompt}
 
 User Question:
@@ -284,6 +337,7 @@ def synthesize_answer(
     sql: str,
     assumptions: str,
     df: pd.DataFrame,
+    chat_history: Optional[List[Dict[str, str]]] = None,
     model: str = DEFAULT_MODEL,
 ) -> str:
     """Synthesizes a concise natural language explanation based on the SQL query results and assumptions."""
@@ -293,7 +347,12 @@ def synthesize_answer(
     else:
         preview = df.head(10).to_string(index=False)
 
+    history_snippet = ""
+    if chat_history:
+        history_snippet = "Context: This is part of an ongoing multi-turn analysis."
+
     prompt = f"""You are Tele-Tron-1, a professional logistics and supply chain business analyst.
+{history_snippet}
 The user asked: "{question}"
 Assumptions applied: {assumptions}
 Executed SQLite Query:
@@ -315,12 +374,35 @@ def ask_database(
     question: str,
     summarize: bool = True,
     max_correction_attempts: int = 2,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    use_cache: bool = True,
     model: str = DEFAULT_MODEL,
     db_path: Path = DB_PATH,
 ) -> QueryResult:
     """Translates a natural language question into SQL, validates safety, enforces memory caps,
     executes against SQLite, applies self-correction on syntax/schema errors, and generates an explanatory summary.
+    
+    Includes multi-turn conversational context and in-memory TTL caching for instant repeat responses.
     """
+    cache_key = _make_cache_key(question, model, chat_history)
+
+    # 1. Check in-memory query cache
+    if use_cache and cache_key in _QUERY_CACHE:
+        entry = _QUERY_CACHE[cache_key]
+        if time.time() - entry["timestamp"] < CACHE_TTL_SECONDS:
+            cached_res: QueryResult = entry["result"]
+            # Return fresh instance marked as cached
+            return QueryResult(
+                question=cached_res.question,
+                sql=cached_res.sql,
+                data=cached_res.data.copy(),
+                summary=cached_res.summary,
+                assumptions=cached_res.assumptions,
+                is_safety_capped=cached_res.is_safety_capped,
+                from_cache=True,
+            )
+
+    # 2. Fresh Execution
     schema = get_schema(db_path=db_path)
     last_error: Optional[str] = None
     sql = ""
@@ -333,6 +415,7 @@ def ask_database(
             question=question,
             schema=schema,
             error_context=last_error,
+            chat_history=chat_history,
             model=model,
         )
 
@@ -361,14 +444,25 @@ def ask_database(
             sql=sql,
             assumptions=assumptions,
             df=df,
+            chat_history=chat_history,
             model=model,
         )
 
-    return QueryResult(
+    result = QueryResult(
         question=question,
         sql=sql,
         data=df,
         summary=summary,
         assumptions=assumptions,
         is_safety_capped=is_safety_capped,
+        from_cache=False,
     )
+
+    # 3. Store in query cache
+    if use_cache and df is not None:
+        _QUERY_CACHE[cache_key] = {
+            "result": result,
+            "timestamp": time.time(),
+        }
+
+    return result
