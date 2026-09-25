@@ -21,6 +21,8 @@
 
 ## 🏗️ Architecture
 
+> 🎨 **Visual Walkthrough**: View the 4-part hand-drawn guide in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```
 User Question
       │
